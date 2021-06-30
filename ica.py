@@ -16,7 +16,7 @@ from utils import postprocess
 from utils import load_generator
 from utils import factorize_weight
 from utils import HtmlPageVisualizer
-import utils
+from utils import parse_indices
 
 
 def indipendent_components_decomposition(W, n_components):
