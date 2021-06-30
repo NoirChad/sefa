@@ -5,6 +5,9 @@ import argparse
 from tqdm import tqdm
 import numpy as np
 
+from sklearn.decomposition import FastICA
+import numpy as np
+import random
 import torch
 
 from models import parse_gan_type
@@ -16,6 +19,62 @@ from utils import HtmlPageVisualizer
 import utils
 
 
+def indipendent_components_decomposition(W, n_components):
+      fast_ica = FastICA(n_components=n_components)
+      fast_ica.fit(W)
+      W_ = fast_ica.components_
+      norm = np.linalg.norm(W_, axis = 1).reshape(-1, n_components)
+      W_nomralize = W_ / norm.T
+      indipendent_components = torch.from_numpy(W_nomralize.T).float()
+      return indipendent_components
+def factorize_weight(generator, layer_idx='all'):
+    """Factorizes the generator weight to get semantics boundaries.
+
+    Args:
+        generator: Generator to factorize.
+        layer_idx: Indices of layers to interpret, especially for StyleGAN and
+            StyleGAN2. (default: `all`)
+
+    Returns:
+        A tuple of (layers_to_interpret, semantic_boundaries, eigen_values).
+
+    Raises:
+        ValueError: If the generator type is not supported.
+    """
+    # Get GAN type.
+    gan_type = parse_gan_type(generator)
+
+    # Get layers.
+    if gan_type == 'pggan':
+        layers = [0]
+    elif gan_type in ['stylegan', 'stylegan2']:
+        if layer_idx == 'all':
+            layers = list(range(generator.num_layers))
+        else:
+            layers = parse_indices(layer_idx,
+                                   min_val=0,
+                                   max_val=generator.num_layers - 1)
+
+    # Factorize semantics from weight.
+    weights = []
+    for idx in layers:
+        layer_name = f'layer{idx}'
+        if gan_type == 'stylegan2' and idx == generator.num_layers - 1:
+            layer_name = f'output{idx // 2}'
+        if gan_type == 'pggan':
+            weight = generator.__getattr__(layer_name).weight
+            weight = weight.flip(2, 3).permute(1, 0, 2, 3).flatten(1)
+        elif gan_type in ['stylegan', 'stylegan2']:
+            weight = generator.synthesis.__getattr__(layer_name).style.weight.T
+        weights.append(weight.cpu().detach().numpy())
+    W = torch.cat(weight, 0)
+    weight = np.concatenate(weights, axis=1).astype(np.float32)
+    weight = weight / np.linalg.norm(weight, axis=0, keepdims=True)
+
+    eigen_values, eigen_vectors = np.linalg.eig(weight.dot(weight.T))
+    # Le added for ICA
+    eigen_vectors = indipendent_components_decomposition(W, layers).to("cpu")
+    return layers, eigen_vectors.T, eigen_values
 
 def parse_args():
     """Parses arguments."""
@@ -59,6 +118,11 @@ def parse_args():
                         help='Seed for sampling. (default: %(default)s)')
     parser.add_argument('--gpu_id', type=str, default='0',
                         help='GPU(s) to use. (default: %(default)s)')
+
+    ## Newly added for ICA-SeFa
+    parser.add_argument(
+        "-n", "--number_of_component", type=int, default=8, help="index of eigenvector"
+    )
     return parser.parse_args()
 
 

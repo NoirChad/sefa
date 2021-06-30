@@ -1,5 +1,6 @@
 """Utility functions."""
 
+
 import base64
 import os
 import subprocess
@@ -507,3 +508,5 @@ class HtmlPageVisualizer(object):
 
         with open(save_path, 'w') as f:
             f.write(header + html + footer)
+
+
